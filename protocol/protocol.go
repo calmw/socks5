@@ -1,107 +1,149 @@
 package protocol
 
 import (
-	bin "encoding/binary"
 	"errors"
-	"socks5/pkg/binary"
+	"io"
+	"net"
+	"sync"
 )
 
 var (
-	VersionError = errors.New("version error")
-	MethodError  = errors.New("Method error")
+	Socks5Version = uint8(5)
+	VersionError  = errors.New("version error")
+	MethodError   = errors.New("method error")
 )
 
+//type ProxyData struct {
+//	DataType int
+//	Data     []byte
+//	Error    error
+//}
+
 type Socks5 struct {
-	Ver     int64  // 版本
-	Step    int    // 步骤
-	Method  int64  // 加密方式
-	dstAddr string // 目标地址
-	dstPort int    // 目标端口号
-	atyp    int    // 目标地址类型 0x01 IPv4，0x03 域名，0x04 IPv6
+	Mu          sync.RWMutex
+	Ver         int64    // 版本
+	CurrentStep int      // 步骤
+	Method      uint8    // 验证方式
+	DstAddr     []byte   // 目标地址
+	DstPort     []byte   // 目标端口号
+	BndAddr     []byte   // 代理服务器连接目标服务器成功后的代理服务器 IP
+	BndPort     []byte   // 代理服务器连接目标服务器成功后的代理服务器端口
+	atyp        int      // 目标地址类型 0x01 IPv4，0x03 域名，0x04 IPv6
+	Conn        net.Conn // 目标地址conn
 }
 
 func NewSocks5() *Socks5 {
-	return &Socks5{}
+	return &Socks5{Mu: sync.RWMutex{}}
 }
 
-// CheckValidateType 连接的第一步
-func (s *Socks5) CheckValidateType(clientData []byte) error {
-	// 版本检测
-	if version, err := binary.ReadInt32FromBinary(clientData[:1]); err != nil {
+func (s *Socks5) CheckVersion(reader io.Reader) error {
+	version := []byte{0}
+	_, err := reader.Read(version)
+	if err != nil {
 		return err
-	} else if version != 0x05 {
+	}
+	if version[0] != Socks5Version {
 		return VersionError
 	}
-	s.Ver = 0x05
 
-	// 方法检测
-	methods := clientData[2 : len(clientData)-1]
-	for _, methodByte := range methods {
-		method, err := binary.ReadInt32FromBinary([]byte{methodByte})
-		if err != nil {
-			return err
-		}
-		if method == 0x00 {
-			s.Method = 0x00
-			return nil
-		} else if method == 0x02 {
-			s.Method = 0x02
-			return nil
-		}
-	}
-	if s.Method != 0x00 && s.Method != 0x02 {
-		return MethodError
-	}
-
-	s.Step = 1
 	return nil
+}
+
+func (s *Socks5) CheckMethod(reader io.Reader, writer io.Writer) error {
+	methods, err := readMethods(reader)
+	if err != nil {
+		return err
+	}
+
+	var method uint8 = AuthMethodUnSupport
+	for _, m := range methods {
+		if m == AuthMethodNo {
+			method = m
+			break
+		} else if m == AuthMethodUsernamePwd {
+			method = m
+			break
+		}
+	}
+
+	s.Method = method
+	_, err = writer.Write([]byte{Socks5Version, method})
+	return err
+}
+
+func (s *Socks5) Check(reader io.Reader, writer io.Writer) error {
+	//TODO
+
+	return nil
+}
+
+func readMethods(r io.Reader) ([]byte, error) {
+	header := []byte{0}
+	if _, err := r.Read(header); err != nil {
+		return nil, err
+	}
+
+	numMethods := int(header[0])
+	methods := make([]byte, numMethods)
+	_, err := io.ReadAtLeast(r, methods, numMethods)
+	return methods, err
+}
+
+func (s *Socks5) Forward(source net.Conn) {
+	forward := func(src, dest net.Conn) {
+		defer src.Close()
+		defer dest.Close()
+		io.Copy(src, dest)
+	}
+	go forward(source, s.Conn)
+	go forward(s.Conn, source)
 }
 
 // GetUsernameAnePwd 连接的第三步，验证用户名密码
 // VERSION		USERNAME_LENGTH		USERNAME	PASSWORD_LENGTH		PASSWORD
 // 1字节			1字节				1-255字节	1字节				1-255字节
 // 0x01			0x01				……			0x01				……
-func (s *Socks5) GetUsernameAnePwd(clientData []byte) (string, string, error) {
-	var index int32 = 1
-	usernameLen, err := binary.ReadInt32FromBinary(clientData[index : index+1])
-	if err != nil {
-		return "", "", err
-	}
-
-	index += 1
-	username := string(clientData[index : index+usernameLen])
-	index += usernameLen
-
-	pwdLen, err := binary.ReadInt32FromBinary(clientData[index : index+1])
-	if err != nil {
-		return "", "", err
-	}
-	index += 1
-	pwd := string(clientData[index : index+pwdLen])
-
-	return username, pwd, nil
-}
+//func (s *Socks5) GetUsernameAnePwd(clientData []byte) (string, string, error) {
+//	var index int32 = 1
+//	usernameLen, err := binary.ReadInt32FromBinary(clientData[index : index+1])
+//	if err != nil {
+//		return "", "", err
+//	}
+//
+//	index += 1
+//	username := string(clientData[index : index+usernameLen])
+//	index += usernameLen
+//
+//	pwdLen, err := binary.ReadInt32FromBinary(clientData[index : index+1])
+//	if err != nil {
+//		return "", "", err
+//	}
+//	index += 1
+//	pwd := string(clientData[index : index+pwdLen])
+//
+//	return username, pwd, nil
+//}
 
 // GetCmd 连接的第三步，验证用户名密码
 // VERSION		COMMAND		RSV		ADDRESS_TYPE	DST.ADDR	DST.PORT
 // 1字节			1字节		1字节	1字节			可变成长度	2字节
-func (s *Socks5) GetCmd(clientData []byte) (int32, int32, int64, int64, error) {
-	var index int32 = 1
-	cmd, err := binary.ReadInt32FromBinary(clientData[index : index+1])
-	if err != nil {
-		return 0, 0, 0, 0, err
-	}
-	index += 2
-	addressType, err := binary.ReadInt32FromBinary(clientData[index : index+1])
-	if err != nil {
-		return 0, 0, 0, 0, err
-	}
-	index += 1
-
-	addr, n := bin.Varint(clientData[index:])
-
-	index += int32(n)
-	port, _ := bin.Varint(clientData[index : index+2])
-
-	return cmd, addressType, addr, port, nil
-}
+//func (s *Socks5) GetCmd(clientData []byte) (int32, int32, int64, int64, error) {
+//	var index int32 = 1
+//	cmd, err := binary.ReadInt32FromBinary(clientData[index : index+1])
+//	if err != nil {
+//		return 0, 0, 0, 0, err
+//	}
+//	index += 2
+//	addressType, err := binary.ReadInt32FromBinary(clientData[index : index+1])
+//	if err != nil {
+//		return 0, 0, 0, 0, err
+//	}
+//	index += 1
+//
+//	addr, n := bin.Varint(clientData[index:])
+//
+//	index += int32(n)
+//	port, _ := bin.Varint(clientData[index : index+2])
+//
+//	return int32(clientData[1]), int32(clientData[3]), addr, int64(clientData[len(clientData)-2,len(clientData)]), nil
+//}

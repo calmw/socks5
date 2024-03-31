@@ -1,18 +1,28 @@
 package main
 
 import (
-	"encoding/binary"
-	"fmt"
-	"io"
-	"log"
+	"bufio"
+	"errors"
 	"net"
+	"socks5/pkg/log"
 	"socks5/protocol"
 )
 
-var connSet map[*net.Conn]*protocol.Socks5
+type Server struct{}
+type Config struct{}
 
-func main() {
-	listener, err := net.Listen("tcp", "0.0.0.0:6666")
+var (
+	Socks5Version = uint8(5)
+	VersionError  = errors.New("version error")
+	MethodError   = errors.New("method error")
+)
+
+func New() (*Server, error) {
+	return &Server{}, nil
+}
+
+func (s *Server) ListenAndServe(addr string) {
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		panic(err)
 	}
@@ -21,84 +31,36 @@ func main() {
 	var conn net.Conn
 	for {
 		conn, err = listener.Accept()
-		if err == io.EOF { // 处理断开的链接
-			_, ok := connSet[&conn]
-			if ok {
-				delete(connSet, &conn)
-				continue
-			}
-		} else if err != nil {
-			log.Println(err)
-			continue
-		}
+		go s.handleConn(conn)
+	}
+}
 
-		var content []byte
-		_, err = conn.Read(content)
-		socks5 := connSet[&conn]
-		if connSet[&conn] == nil { // 第一次连接
-			socks5 = protocol.NewSocks5()
-
-			// 第一步:处理客户端发送的报头
-			err = socks5.CheckValidateType(content)
-			if err != nil {
-				log.Println(err)
-				continue
-			}
-
-			// 第二步:代理服务器响应报头
-			sendData := make([]byte, 2)
-			binary.PutVarint(sendData[:1], socks5.Ver)
-			binary.PutVarint(sendData[1:2], socks5.Method)
-			if _, err = conn.Write(sendData); err != nil {
-				log.Println(err)
-				continue
-			}
-			socks5.Step = 2
-
-			connSet[&conn] = socks5
-		} else {
-			if socks5.Step == 2 {
-				var status int64 = 0
-				if socks5.Method == 0x02 {
-					username, pwd, err := socks5.GetUsernameAnePwd(content)
-					if err != nil {
-						log.Println(err)
-						continue
-					}
-
-					// 检查用户名密码
-					fmt.Println(username, pwd)
-					//TODO
-					//检查失败返回status>0
-				}
-				sendData := make([]byte, 2)
-				binary.PutVarint(sendData[:1], socks5.Ver)
-				binary.PutVarint(sendData[1:2], status)
-				if _, err = conn.Write(sendData); err != nil {
-					log.Println(err)
-					continue
-				}
-				socks5.Step = 3
-			} else if socks5.Step == 3 {
-				cmd, addressType, addr, port, err := socks5.GetCmd(content)
-				if err != nil {
-					log.Println(err)
-					continue
-				}
-
-				// 发回客户端
-				//sendData := make([]byte, 2)
-				//binary.PutVarint(sendData[:1], socks5.Ver)
-				//binary.PutVarint(sendData[1:2], status)
-				//if _, err = conn.Write(sendData); err != nil {
-				//	log.Println(err)
-				//	continue
-				//}
-				// 代理流量
-				fmt.Println(cmd, addressType, addr, port)
-
-			}
+func (s *Server) handleConn(conn net.Conn) {
+	bufConn := bufio.NewReader(conn) // 可以多次读，io.reader读一次就没了
+	var socks5 *protocol.Socks5
+	if socks5 == nil {
+		socks5 = protocol.NewSocks5()
+	}
+	// 检查版本
+	err := socks5.CheckVersion(bufConn)
+	if err != nil {
+		log.Logger.Sugar().Info(err)
+		return
+	}
+	// 检查验证方式
+	err = socks5.CheckMethod(bufConn, conn)
+	if err != nil {
+		log.Logger.Sugar().Info(err)
+		return
+	}
+	// 如果不是用户名-密码验证方式就直接下一步
+	if socks5.Method == protocol.AuthMethodUsernamePwd {
+		err = socks5.Check(bufConn, conn)
+		if err != nil {
+			log.Logger.Sugar().Info(err)
+			return
 		}
 	}
+	//
 
 }
