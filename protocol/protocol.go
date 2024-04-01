@@ -11,6 +11,16 @@ var (
 	Socks5Version = uint8(5)
 	VersionError  = errors.New("version error")
 	MethodError   = errors.New("method error")
+
+	ResponseCodeZero  = uint8(0) // 代理服务器连接目标服务器成功
+	ResponseCodeOne   = uint8(1) // 代理服务器故障
+	ResponseCodeTwo   = uint8(2) // 代理服务器规则集不允许连接
+	ResponseCodeThree = uint8(3) // 网络无法访问
+	ResponseCodeFour  = uint8(4) // 目标服务器无法访问（主机名无效）
+	ResponseCodeFive  = uint8(5) // 连接目标服务器被拒绝
+	ResponseCodeSix   = uint8(6) // TTL已过期
+	ResponseCodeSeven = uint8(7) // 不支持的命令
+	ResponseCodeEight = uint8(8) // 不支持的目标服务器地址类型
 )
 
 //type ProxyData struct {
@@ -73,6 +83,49 @@ func (s *Socks5) CheckMethod(reader io.Reader, writer io.Writer) error {
 
 func (s *Socks5) Check(reader io.Reader, writer io.Writer) error {
 	//TODO
+
+	return nil
+}
+func (s *Socks5) CreateProxy(reader io.Reader, writer io.Writer) error {
+	//var response = ResponseCodeZero
+
+	//var buf [256]byte
+	//n, err := reader.Read(buf[:])
+	//cmd := buf[1]
+	//port := buf[n-2 : n]
+	//
+	//
+	//var target string
+	//if buf[3] == 0x01 { // IP
+	//	addr := buf[4 : n-2]
+	//	target = fmt.Sprintf("%s:%d", net.IPv4(addr[0], addr[1], addr[2], addr[3]).String(), binary.BigEndian.Uint16(port))
+	//} else if buf[3] == 0x03 { // 域名,域名类型，DST.ADDR的第一个字节是长度
+	//	target = fmt.Sprintf("%s:%d", string(buf[5:n-2]), binary.BigEndian.Uint16(port))
+	//} else { // IPV6等其他暂不支持
+	//	response = 0x07
+	//}
+	//
+	//ipSli, portSli, pConn, err := process(target)
+	//if err != nil {
+	//	log.Logger.Sugar().Info(err)
+	//	continue
+	//}
+	//socks5.Conn = pConn
+	//socks5.BndPort = portSli
+	//socks5.BndAddr = ipSli
+	//
+	//// 发回客户端
+	//sendData := make([]byte, len(ipSli)+6)
+	//sendData[0] = 0x05
+	//sendData[1] = byte(response)
+	//sendData[2] = 0x00
+	//sendData[3] = 0x01
+	//sendData = append(sendData, ipSli...)
+	//sendData = append(sendData, portSli...)
+	//if _, err = conn.Write(sendData); err != nil {
+	//	log.Logger.Sugar().Info(err)
+	//	return
+	//}
 
 	return nil
 }
