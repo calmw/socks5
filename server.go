@@ -2,8 +2,9 @@ package main
 
 import (
 	"bufio"
-	"errors"
+	"context"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"socks5/logger"
@@ -14,13 +15,6 @@ type Server struct {
 	addr string
 	port int
 }
-type Config struct{}
-
-var (
-	Socks5Version = uint8(5)
-	VersionError  = errors.New("version error")
-	MethodError   = errors.New("method error")
-)
 
 func NewServer(addr string, opts ...Option) *Server {
 	var options Options
@@ -63,8 +57,11 @@ func (s *Server) ListenAndServe() {
 }
 
 func (s *Server) handleConn(conn net.Conn) {
-	log.Printf("%s connected \n", conn.RemoteAddr())
+	defer conn.Close()
+
+	log.Printf("客户端:%s 连接成功 \n", conn.RemoteAddr())
 	bufConn := bufio.NewReader(conn) // 可以多次读，io.reader读一次就没了
+
 	var socks5 *protocol.Socks5
 	if socks5 == nil {
 		socks5 = protocol.NewSocks5()
@@ -78,7 +75,7 @@ func (s *Server) handleConn(conn net.Conn) {
 		return
 	}
 	// 3 如果为账号密码认证客户端再次发送账密密码进行认证 ,4 服务器响应账号密码认证结果. 如果无需账号密码认证，则直接跳过此步骤
-	if socks5.Method == protocol.AuthMethodUsernamePwd {
+	if socks5.AuthMethod == protocol.AuthMethodUsernamePwd {
 		err = socks5.Auth(bufConn, conn)
 		if err != nil {
 			logger.Zap.Sugar().Info(err)
@@ -87,11 +84,27 @@ func (s *Server) handleConn(conn net.Conn) {
 	}
 
 	/// 命令过程
-	Tconn, err := socks5.CreateProxy(conn, conn)
+	tConn, err := socks5.CreateProxy(bufConn, conn)
 	if err != nil {
 		return
 	}
+	defer tConn.Close()
 
 	/// 数据转发
-	protocol.Forward(conn, Tconn)
+	s.Forward(conn, tConn)
+}
+
+func (s *Server) Forward(conn, tConn net.Conn) {
+	log.Printf("远程服务器开始响应客户端:%s\n", conn.RemoteAddr().String())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		_, _ = io.Copy(tConn, conn)
+		cancel()
+	}()
+	go func() {
+		_, _ = io.Copy(conn, tConn)
+		cancel()
+	}()
+	<-ctx.Done()
 }

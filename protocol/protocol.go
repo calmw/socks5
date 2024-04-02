@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"bufio"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -8,58 +9,28 @@ import (
 	"log"
 	"net"
 	"socks5/logger"
-	"strconv"
-	"strings"
-	"sync"
 )
 
 var (
 	Socks5Version = uint8(5)
 	VersionError  = errors.New("version error")
-	MethodError   = errors.New("method error")
-
-	ResponseCodeZero  = uint8(0) // 代理服务器连接目标服务器成功
-	ResponseCodeOne   = uint8(1) // 代理服务器故障
-	ResponseCodeTwo   = uint8(2) // 代理服务器规则集不允许连接
-	ResponseCodeThree = uint8(3) // 网络无法访问
-	ResponseCodeFour  = uint8(4) // 目标服务器无法访问（主机名无效）
-	ResponseCodeFive  = uint8(5) // 连接目标服务器被拒绝
-	ResponseCodeSix   = uint8(6) // TTL已过期
-	ResponseCodeSeven = uint8(7) // 不支持的命令
-	ResponseCodeEight = uint8(8) // 不支持的目标服务器地址类型
 )
 
-//type ProxyData struct {
-//	DataType int
-//	Data     []byte
-//	Error    error
-//}
-
 type Socks5 struct {
-	Mu          sync.RWMutex
-	Ver         int64    // 版本
-	CurrentStep int      // 步骤
-	Method      uint8    // 验证方式
-	DstAddr     []byte   // 目标地址
-	DstPort     []byte   // 目标端口号
-	BndAddr     []byte   // 代理服务器连接目标服务器成功后的代理服务器 IP
-	BndPort     []byte   // 代理服务器连接目标服务器成功后的代理服务器端口
-	atyp        int      // 目标地址类型 0x01 IPv4，0x03 域名，0x04 IPv6
-	Conn        net.Conn // 目标地址conn
+	AuthMethod uint8 // 验证方式
 }
 
 func NewSocks5() *Socks5 {
-	return &Socks5{Mu: sync.RWMutex{}}
+	return &Socks5{}
 }
 
-func (s *Socks5) CheckVersionAndAuthMethod(reader io.Reader, writer io.Writer) error {
+func (s *Socks5) CheckVersionAndAuthMethod(reader *bufio.Reader, conn net.Conn) error {
 	// 检查版本
-	version := []byte{0}
-	_, err := reader.Read(version)
+	version, err := reader.ReadByte()
 	if err != nil {
 		return err
 	}
-	if version[0] != Socks5Version {
+	if version != Socks5Version {
 		return VersionError
 	}
 
@@ -72,11 +43,11 @@ func (s *Socks5) CheckVersionAndAuthMethod(reader io.Reader, writer io.Writer) e
 	var method uint8 = AuthMethodUnSupport
 	for _, m := range methods {
 		if m == AuthMethodNo {
-			s.Method = m
+			method = m
 			break
 		} else if m == AuthMethodUsernamePwd {
-			s.Method = m
-			err = s.Check(reader, writer)
+			method = m
+			err = s.Check(reader, conn)
 			if err != nil {
 				logger.Zap.Sugar().Info(err)
 				return err
@@ -85,20 +56,19 @@ func (s *Socks5) CheckVersionAndAuthMethod(reader io.Reader, writer io.Writer) e
 		}
 	}
 
-	s.Method = method
-	_, err = writer.Write([]byte{Socks5Version, method})
+	_, err = conn.Write([]byte{Socks5Version, method})
 	return err
 }
 
-func (s *Socks5) Auth(reader io.Reader, writer io.Writer) error {
+func (s *Socks5) Auth(reader io.Reader, conn net.Conn) error {
 	status := uint8(0)
 
-	err := s.Check(reader, writer)
+	err := s.Check(reader, conn)
 	if err != nil {
 		status = uint8(1) // 大于0认证失败
 	}
 
-	_, err = writer.Write([]byte{Socks5Version, status})
+	_, err = conn.Write([]byte{Socks5Version, status})
 
 	return err
 }
@@ -108,7 +78,8 @@ func (s *Socks5) Check(reader io.Reader, writer io.Writer) error {
 
 	return nil
 }
-func (s *Socks5) CreateProxy(reader io.Reader, writer io.Writer) (net.Conn, error) {
+
+func (s *Socks5) CreateProxy(reader io.Reader, conn net.Conn) (net.Conn, error) {
 	//var response = ResponseCodeZero
 
 	var buf [4]byte
@@ -149,105 +120,43 @@ func (s *Socks5) CreateProxy(reader io.Reader, writer io.Writer) (net.Conn, erro
 	} else { // IPV6等其他暂不支持
 		//response = ResponseCodeSeven
 	}
-	log.Println(target)
+	log.Printf("客户端:%s，请求：%s\n", conn.RemoteAddr().String(), target)
 
 	cmd := buf[1]
 	// CONNECT 连接目标服务器
 	if cmd == uint8(1) {
-		conn, err := net.Dial("tcp", target)
+		connT, err := net.Dial("tcp", target)
 		if err != nil {
 			logger.Zap.Sugar().Info(err)
 			return nil, err
 		}
-		ipSlic := strings.Split(conn.LocalAddr().String(), ":")
-		ip := net.ParseIP(ipSlic[0])
-		var port []byte
 
-		num, err := strconv.ParseUint(ipSlic[1], 10, 16)
-		if err != nil {
-			logger.Zap.Sugar().Info(err)
-			return nil, err
+		res := []byte{Socks5Version, uint8(0), uint8(0), uint8(1)}
+		if client, ok := connT.LocalAddr().(*net.TCPAddr); ok {
+			port := binary.BigEndian.AppendUint16([]byte(nil), uint16(client.Port))
+			res = append(res, client.IP...)
+			res = append(res, port...)
 		}
-		uint16Num := uint16(num)
-		port = binary.BigEndian.AppendUint16(port, uint16Num)
-		res := []byte{Socks5Version, uint8(0), uint8(0)}
-		res = append(res, ip.To4()...)
-		res = append(res, port...)
-		_, err = writer.Write(res)
 
-		return conn, err
+		_, err = conn.Write(res)
+
+		return connT, err
 	}
 
 	return nil, nil
 }
 
-func readMethods(r io.Reader) ([]byte, error) {
-	header := []byte{0}
-	if _, err := r.Read(header); err != nil {
-		return nil, err
+func readMethods(reader *bufio.Reader) ([]byte, error) {
+	methodSize, err := reader.ReadByte()
+	if err != nil {
+		return nil, fmt.Errorf("read methodSize failed:%w", err)
 	}
 
-	numMethods := int(header[0])
-	methods := make([]byte, numMethods)
-	_, err := io.ReadAtLeast(r, methods, numMethods)
+	methods := make([]byte, methodSize)
+	_, err = io.ReadFull(reader, methods)
+	if err != nil {
+		return nil, fmt.Errorf("read method failed:%w", err)
+	}
+
 	return methods, err
 }
-
-func Forward(source, dest net.Conn) {
-	forward := func(src, dest net.Conn) {
-		defer src.Close()
-		defer dest.Close()
-		io.Copy(src, dest)
-	}
-	go forward(source, dest)
-	go forward(dest, source)
-}
-
-// GetUsernameAnePwd 连接的第三步，验证用户名密码
-// VERSION		USERNAME_LENGTH		USERNAME	PASSWORD_LENGTH		PASSWORD
-// 1字节			1字节				1-255字节	1字节				1-255字节
-// 0x01			0x01				……			0x01				……
-//func (s *Socks5) GetUsernameAnePwd(clientData []byte) (string, string, error) {
-//	var index int32 = 1
-//	usernameLen, err := binary.ReadInt32FromBinary(clientData[index : index+1])
-//	if err != nil {
-//		return "", "", err
-//	}
-//
-//	index += 1
-//	username := string(clientData[index : index+usernameLen])
-//	index += usernameLen
-//
-//	pwdLen, err := binary.ReadInt32FromBinary(clientData[index : index+1])
-//	if err != nil {
-//		return "", "", err
-//	}
-//	index += 1
-//	pwd := string(clientData[index : index+pwdLen])
-//
-//	return username, pwd, nil
-//}
-
-// GetCmd 连接的第三步，验证用户名密码
-// VERSION		COMMAND		RSV		ADDRESS_TYPE	DST.ADDR	DST.PORT
-// 1字节			1字节		1字节	1字节			可变成长度	2字节
-//func (s *Socks5) GetCmd(clientData []byte) (int32, int32, int64, int64, error) {
-//	var index int32 = 1
-//	cmd, err := binary.ReadInt32FromBinary(clientData[index : index+1])
-//	if err != nil {
-//		return 0, 0, 0, 0, err
-//	}
-//	index += 2
-//	addressType, err := binary.ReadInt32FromBinary(clientData[index : index+1])
-//	if err != nil {
-//		return 0, 0, 0, 0, err
-//	}
-//	index += 1
-//
-//	addr, n := bin.Varint(clientData[index:])
-//
-//	index += int32(n)
-//	port, _ := bin.Varint(clientData[index : index+2])
-//
-//	return int32(clientData[1]), int32(clientData[3]), addr, int64(clientData[len(clientData)-2,len(clientData)]), nil
-//}
