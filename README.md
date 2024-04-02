@@ -13,3 +13,18 @@
     - ![配置.png](static%2F%E9%85%8D%E7%BD%AE.png)
     - 浏览器测试：
         - ![浏览器测试.png](static%2F%E6%B5%8F%E8%A7%88%E5%99%A8%E6%B5%8B%E8%AF%95.png)
+
+#### 使用
+- 使用示例：
+``` go
+package main
+
+import (
+	"github.com/calmw/socks5"
+)
+
+func main() {
+	server := socks5.NewServer("0.0.0.0", socks5.WithPort(6666))
+	server.ListenAndServe()
+}
+```

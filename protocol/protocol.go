@@ -5,10 +5,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/calmw/socks5/logger"
 	"io"
 	"log"
 	"net"
-	"socks5/logger"
 )
 
 var (
