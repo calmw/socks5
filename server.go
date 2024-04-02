@@ -4,11 +4,11 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"github.com/calmw/socks5/logger"
+	"github.com/calmw/socks5/protocol"
 	"io"
 	"log"
 	"net"
-	"socks5/logger"
-	"socks5/protocol"
 )
 
 type Server struct {

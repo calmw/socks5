@@ -1,4 +1,4 @@
-module socks5
+module github.com/calmw/socks5
 
 go 1.21.6
 
