@@ -1,8 +1,7 @@
 package main
 
 import (
-	"io/ioutil"
-
+	"io"
 	"net/http"
 
 	"golang.org/x/net/proxy"
@@ -17,11 +16,12 @@ func main() {
 		Transport: &http.Transport{Dial: dialer.Dial},
 	}
 
-	resp, _ := client.Get("http://ip.gs")
+	//resp, _ := client.Get("http://ip.gs")
+	resp, _ := client.Get("http://8.130.102.48:8000")
 
 	defer resp.Body.Close()
 
-	bodyBytes, _ := ioutil.ReadAll(resp.Body)
+	bodyBytes, _ := io.ReadAll(resp.Body)
 
 	println(string(bodyBytes))
 

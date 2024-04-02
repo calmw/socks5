@@ -53,7 +53,7 @@ package protocol
 //	return nil
 //}
 //
-//func (s *Socks5) CheckMethod(reader io.Reader, writer io.Writer) error {
+//func (s *Socks5) CheckVersionAndAuthMethod(reader io.Reader, writer io.Writer) error {
 //	fmt.Println(1)
 //	methods, err := readMethods(reader)
 //	if err != nil {

@@ -7,7 +7,7 @@ package main
 //	"fmt"
 //	"io"
 //	"net"
-//	"socks5/pkg/log"
+//	"socks5/pkg/logger"
 //	"socks5/protocol"
 //	"strconv"
 //	"strings"
@@ -41,7 +41,7 @@ package main
 //		if err == io.EOF { // 处理断开的链接
 //			return
 //		} else if err != nil {
-//			log.Logger.Sugar().Info(err)
+//			logger.Logger.Sugar().Info(err)
 //			return
 //		}
 //
@@ -51,14 +51,14 @@ package main
 //			socks5 = protocol.NewSocks5()
 //
 //			if n < 3 {
-//				log.Logger.Sugar().Info("content length error:", n)
+//				logger.Logger.Sugar().Info("content length error:", n)
 //				return
 //			}
 //
 //			// 第一步:处理客户端发送的报头
 //			err = socks5.CheckValidateType(buf[:n])
 //			if err != nil {
-//				log.Logger.Sugar().Info(err)
+//				logger.Logger.Sugar().Info(err)
 //				return
 //			}
 //			socks5.CurrentStep = 1
@@ -68,14 +68,14 @@ package main
 //			//sendData[0] = byte(socks5.Ver)
 //			//sendData[1] = byte(socks5.Method)
 //			//if _, err = conn.Write(sendData); err != nil {
-//			//	log.Logger.Sugar().Info(err)
+//			//	logger.Logger.Sugar().Info(err)
 //			//	return
 //			//}
 //
 //			bufConn := bufio.NewReader(conn)
 //			err = protocol.CheckValidateMethod(bufConn, conn)
 //			if err != nil {
-//				log.Logger.Sugar().Info(err)
+//				logger.Logger.Sugar().Info(err)
 //				return
 //			}
 //
@@ -98,7 +98,7 @@ package main
 //				sendData[0] = 0x05
 //				sendData[1] = byte(status)
 //				if _, err = conn.Write(sendData); err != nil {
-//					log.Logger.Sugar().Info(err)
+//					logger.Logger.Sugar().Info(err)
 //					return
 //				}
 //				socks5.CurrentStep = 3
@@ -123,7 +123,7 @@ package main
 //
 //				ipSli, portSli, pConn, err := process(target)
 //				if err != nil {
-//					log.Logger.Sugar().Info(err)
+//					logger.Logger.Sugar().Info(err)
 //					continue
 //				}
 //				socks5.Conn = pConn
@@ -139,7 +139,7 @@ package main
 //				sendData = append(sendData, ipSli...)
 //				sendData = append(sendData, portSli...)
 //				if _, err = conn.Write(sendData); err != nil {
-//					log.Logger.Sugar().Info(err)
+//					logger.Logger.Sugar().Info(err)
 //					return
 //				}
 //				socks5.CurrentStep = 4
@@ -157,7 +157,7 @@ package main
 //
 //				//_, err = socks5.Conn.Write(buf[:n])
 //				//if err != nil {
-//				//	log.Logger.Sugar().Info(err)
+//				//	logger.Logger.Sugar().Info(err)
 //				//	return
 //				//}
 //				//var bufR [1024]byte
@@ -170,17 +170,17 @@ package main
 //				//	for {
 //				//		nt, err := socks5.Conn.Read(bufR[:])
 //				//		if err == io.EOF { // 处理断开的链接
-//				//			log.Logger.Sugar().Info(err)
+//				//			logger.Logger.Sugar().Info(err)
 //				//			break
 //				//		} else if err != nil {
-//				//			log.Logger.Sugar().Info(err)
+//				//			logger.Logger.Sugar().Info(err)
 //				//			break
 //				//		}
 //				//		//targetData = append(targetData, bufR[:nt]...)
 //				//		num, err := c.Write(bufR[:nt])
 //				//		fmt.Println(num, err)
 //				//		if err != nil {
-//				//			log.Logger.Sugar().Info(err)
+//				//			logger.Logger.Sugar().Info(err)
 //				//		}
 //				//
 //				//		if nt < 1024 {

@@ -1,10 +1,7 @@
 package main
 
 func main() {
-	server, err := New()
-	if err != nil {
-		panic(err)
-	}
+	server := NewServer("0.0.0.0", WithPort(6666))
 
-	server.ListenAndServe("0.0.0.0:6666")
+	server.ListenAndServe()
 }
