@@ -67,20 +67,24 @@ func (s *Server) handleConn(conn net.Conn) {
 		socks5 = protocol.NewSocks5()
 	}
 
-	/// 认证过程
-	// 1 客户端请求认证（检查版本，选定认证方式）, 2 服务器返回选定的认证方法
-	err := socks5.CheckVersionAndAuthMethod(bufConn, conn)
-	if err != nil {
-		logger.Zap.Sugar().Info(err)
+	/// 检查socks版本
+	version := []byte{0}
+	if _, err := bufConn.Read(version); err != nil {
+		logger.Zap.Sugar().Error(err)
 		return
 	}
+	if version[0] != uint8(5) {
+		err := fmt.Errorf("unsupported SOCKS version: %v", version)
+		logger.Zap.Sugar().Error(err)
+		return
+	}
+
+	/// 认证过程
+	// 1 客户端请求认证（检查版本，选定认证方式）, 2 服务器返回选定的认证方法
 	// 3 如果为账号密码认证客户端再次发送账密密码进行认证 ,4 服务器响应账号密码认证结果. 如果无需账号密码认证，则直接跳过此步骤
-	if socks5.AuthMethod == protocol.AuthMethodUsernamePwd {
-		err = socks5.Auth(bufConn, conn)
-		if err != nil {
-			logger.Zap.Sugar().Info(err)
-			return
-		}
+	_, err := socks5.Auth(bufConn, conn)
+	if err != nil {
+		return
 	}
 
 	/// 命令过程
