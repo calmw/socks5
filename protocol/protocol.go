@@ -68,16 +68,17 @@ func (s *Socks5) Auth(reader *bufio.Reader, conn net.Conn) (*AuthContext, error)
 	if method == AuthMethodUsernamePwd {
 		var authUsernamePasswordVersion uint8
 		var username, pwd string
+		status := uint8(0)
+
+		// 如果获取用户名密码失败，也算认证失败
 		authUsernamePasswordVersion, username, pwd, err = s.parseAuthInfo(reader, conn)
-		if err != nil {
-			return nil, err
+		if err == nil {
+			err = s.checkAuthInfo(username, pwd)
+			if err != nil {
+				status = uint8(1) // 大于0认证失败
+			}
 		}
 
-		status := uint8(0)
-		err = s.checkAuthInfo(username, pwd)
-		if err != nil {
-			status = uint8(1) // 大于0认证失败
-		}
 		// 注意，这里使用authUsernamePasswordVersion，而不是socks版本5
 		_, err = conn.Write([]byte{authUsernamePasswordVersion, status})
 
